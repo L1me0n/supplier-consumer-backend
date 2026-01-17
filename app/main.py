@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from app.core.config import SECRET_KEY, ALGORITHM
 
@@ -8,7 +8,7 @@ from app.db.session import get_db, engine
 from app.db.base import Base
 from app.models.user import User
 from app.schemas.user import UserCreate, UserRead
-from app.schemas.auth import LoginRequest, Token
+from app.schemas.auth import Token
 from app.core.security import get_password_hash, verify_password, create_access_token
 
 
@@ -25,7 +25,6 @@ def health_check(db: Session = Depends(get_db)):
 
 @app.post("/users", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
-    # Check if email already exists
     existing = db.query(User).filter(User.email == user_in.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -48,14 +47,16 @@ def list_users(db: Session = Depends(get_db)):
     return users
 
 @app.post("/auth/login", response_model=Token)
-def login(login_in: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == login_in.email).first()
-    if not user or not verify_password(login_in.password, user.password_hash):
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    # Swagger sends "username", we will treat it as email
+    user = db.query(User).filter(User.email == form_data.username).first()
+    if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    token = create_access_token({"sub": str(user.id)})
-    return Token(access_token=token)
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+    access_token = create_access_token({"sub": str(user.id)})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)) -> User:
     try:
