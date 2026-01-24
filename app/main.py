@@ -1,19 +1,26 @@
 from fastapi import FastAPI, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError, jwt
+
 from app.core.config import SECRET_KEY, ALGORITHM
 from app.core.auth import get_current_user
+from app.core.security import get_password_hash, verify_password, create_access_token
+from app.core.deps import require_role
+
 
 from app.db.session import get_db, engine
 from app.db.base import Base
+
 from app.models.user import User
 from app.models.product import Product
+from app.models.order import Order, OrderItem
+
 from app.schemas.user import UserCreate, UserRead
 from app.schemas.product import ProductCreate, ProductRead, ProductUpdate
+from app.schemas.order import OrderCreate, OrderRead
 from app.schemas.auth import Token
-from app.core.security import get_password_hash, verify_password, create_access_token
-from app.core.deps import require_role
+
 
 
 app = FastAPI()
@@ -117,6 +124,73 @@ def delete_product(
     db.delete(product)
     db.commit()
     return {"deleted": "True"}
+
+@app.get("/orders/my", response_model=list[OrderRead])
+def list_my_orders(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("consumer")),
+):
+    orders = (
+        db.query(Order)
+        .options(joinedload(Order.items))
+        .filter(Order.consumer_id == current_user.id)
+        .order_by(Order.created_aat.desc())
+        .all()
+    )
+    return orders
+
+@app.post("/orders", response_model=OrderRead)
+def create_order(
+    order_in: OrderCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("consumer")),
+):
+    if not order_in.items:
+        raise HTTPException(status_code=400, detail="Order must contain at least one item")
+
+    order = Order(
+        consumer_id=current_user.id,
+        status="pending",
+    )
+    db.add(order)
+    db.flush()  # Get order.id before committing
+
+    for item_in in order_in.items:
+        if item_in.quantity <= 0:
+            raise HTTPException(status_code=400, detail="Item quantity must be greater than zero")
+        
+        product = db.query(Product).filter(Product.id == item_in.product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail=f"Product with ID {item_in.product_id} not found")
+        
+        order_item = OrderItem(
+            order_id=order.id,
+            product_id=item_in.product_id,
+            quantity=item_in.quantity,
+            unit_price=product.price,
+        )
+        db.add(order_item)
+
+    db.commit()
+    order = db.query(Order).options(joinedload(Order.items)).filter(Order.id == order.id).first()
+    return order
+
+@app.get("/orders/for-my-products", response_model=list[OrderRead])
+def list_orders_for_supplier_products(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("supplier")),
+):
+    orders = (
+        db.query(Order)
+        .options(joinedload(Order.items))
+        .join(OrderItem, OrderItem.order_id == Order.id)
+        .join(Product, Product.id == OrderItem.product_id)
+        .filter(Product.supplier_id == current_user.id)
+        .distinct()
+        .order_by(Order.id.desc())
+        .all()
+    )
+    return orders
 
 @app.post("/auth/login", response_model=Token)
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):

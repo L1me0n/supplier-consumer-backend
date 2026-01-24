@@ -14,3 +14,4 @@ class User(Base):
     role = Column(String, nullable=False, default="consumer")
 
     products = relationship("Product", back_populates="supplier", cascade="all, delete-orphan")
+    orders = relationship("Order", back_populates="consumer", cascade="all, delete-orphan")
