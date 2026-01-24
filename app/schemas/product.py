@@ -5,6 +5,11 @@ class ProductCreate(BaseModel):
     description: str | None = None
     price: float
 
+class ProductUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    price: float | None = None
+
 class ProductRead(ProductCreate):
     id: int
     supplier_id: int

@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String
 from app.db.base import Base
+from sqlalchemy.orm import relationship
 
 
 
@@ -11,3 +12,5 @@ class User(Base):
     full_name = Column(String, nullable=True)
     password_hash = Column(String, nullable=False)
     role = Column(String, nullable=False, default="consumer")
+
+    products = relationship("Product", back_populates="supplier", cascade="all, delete-orphan")

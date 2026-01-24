@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from app.core.config import SECRET_KEY, ALGORITHM
 from app.core.auth import get_current_user
@@ -10,7 +10,7 @@ from app.db.base import Base
 from app.models.user import User
 from app.models.product import Product
 from app.schemas.user import UserCreate, UserRead
-from app.schemas.product import ProductCreate, ProductRead
+from app.schemas.product import ProductCreate, ProductRead, ProductUpdate
 from app.schemas.auth import Token
 from app.core.security import get_password_hash, verify_password, create_access_token
 from app.core.deps import require_role
@@ -73,8 +73,50 @@ def create_product(
 
 @app.get("/products", response_model=list[ProductRead])
 def list_products(db: Session = Depends(get_db)):
-    products = db.query(Product).all()
+    products = db.query(Product).order_by(Product.id.desc()).all()
     return products
+
+@app.put("/products/{product_id}", response_model=ProductRead)
+def update_product(
+    product_id: int,
+    product_in: ProductUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("supplier")),
+):
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    if product.supplier_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to update this product")
+
+    if product_in.name is not None:
+        product.name = product_in.name
+    if product_in.description is not None:
+        product.description = product_in.description
+    if product_in.price is not None:
+        product.price = product_in.price
+
+    db.commit()
+    db.refresh(product)
+    return product
+
+@app.delete("/products/{product_id}")
+def delete_product(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("supplier")),
+):
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    if product.supplier_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this product")
+
+    db.delete(product)
+    db.commit()
+    return {"deleted": "True"}
 
 @app.post("/auth/login", response_model=Token)
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
