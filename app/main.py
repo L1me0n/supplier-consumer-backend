@@ -26,7 +26,7 @@ from app.schemas.auth import Token
 app = FastAPI()
 
 # Create tables in DB (if they do not exist)
-Base.metadata.create_all(bind=engine)
+# Base.metadata.create_all(bind=engine) - replaced with alembic migrations
 
 
 @app.get("/health")
